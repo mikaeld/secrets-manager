@@ -1,39 +1,39 @@
 import json
-import pytest
 from unittest.mock import Mock, patch
-from secrets_manager.utils.gcp import (
-    list_secrets,
-    get_secret_versions,
-    get_secret_version_value,
-    search_gcp_projects
-)
+
+import pytest
+
 from secrets_manager.models.gcp_projects import GCPProject
+from secrets_manager.utils.gcp import (
+    get_secret_version_value,
+    get_secret_versions,
+    list_secrets,
+    search_gcp_projects,
+)
 
 
 @pytest.fixture
 def mock_secret_manager_client():
-    with patch('google.cloud.secretmanager.SecretManagerServiceClient') as mock:
+    with patch("google.cloud.secretmanager.SecretManagerServiceClient") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_projects_client():
-    with patch('google.cloud.resourcemanager_v3.ProjectsClient') as mock:
+    with patch("google.cloud.resourcemanager_v3.ProjectsClient") as mock:
         yield mock
 
 
 def test_list_secrets(mock_secret_manager_client):
     mock_project = GCPProject(
-        name="projects/123",
-        project_id="test-project",
-        display_name="Test Project"
+        name="projects/123", project_id="test-project", display_name="Test Project"
     )
 
     mock_client = Mock()
     mock_secret_manager_client.return_value = mock_client
     mock_client.list_secrets.return_value = []
 
-    result = list_secrets(mock_project)
+    _ = list_secrets(mock_project)
 
     mock_client.list_secrets.assert_called_once_with(
         request={"parent": f"projects/{mock_project.project_id}"}
@@ -46,23 +46,23 @@ def test_get_secret_versions(mock_secret_manager_client, mock_secret):
     mock_client.list_secret_versions.return_value = []
 
     # Test without deleted versions
-    result = get_secret_versions(mock_secret)
+    _ = get_secret_versions(mock_secret)
 
     # Verify that list_secret_versions was called once
     assert mock_client.list_secret_versions.called
     # Get the actual call arguments
-    call_args = mock_client.list_secret_versions.call_args[1]['request']
+    call_args = mock_client.list_secret_versions.call_args[1]["request"]
     # Verify the request parameters individually
     assert call_args.parent == mock_secret.name
     assert call_args.filter == "state!=DESTROYED"
 
     # Test with deleted versions
     mock_client.list_secret_versions.reset_mock()
-    result = get_secret_versions(mock_secret, show_deleted=True)
+    _ = get_secret_versions(mock_secret, show_deleted=True)
 
     # Verify the call for show_deleted=True
     assert mock_client.list_secret_versions.called
-    call_args = mock_client.list_secret_versions.call_args[1]['request']
+    call_args = mock_client.list_secret_versions.call_args[1]["request"]
     assert call_args.parent == mock_secret.name
 
 

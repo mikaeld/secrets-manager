@@ -1,12 +1,12 @@
 import json
 
-from google.cloud import resourcemanager_v3
-from google.cloud import secretmanager
+from google.cloud import resourcemanager_v3, secretmanager
 from google.cloud.secretmanager_v1.services.secret_manager_service.pagers import (
     ListSecretsPager,
 )
 
 from secrets_manager.models.gcp_projects import GCPProject
+
 
 def list_secrets(gcp_project: GCPProject) -> ListSecretsPager:
     client = secretmanager.SecretManagerServiceClient()
@@ -14,8 +14,9 @@ def list_secrets(gcp_project: GCPProject) -> ListSecretsPager:
     return client.list_secrets(request={"parent": parent})
 
 
-def get_secret_versions(secret: secretmanager.Secret, show_deleted: bool = False) -> list[
-    secretmanager.SecretVersion]:
+def get_secret_versions(
+    secret: secretmanager.Secret, show_deleted: bool = False
+) -> list[secretmanager.SecretVersion]:
     """
     Get all versions of a secret from GCP Secret Manager.
 
@@ -31,8 +32,7 @@ def get_secret_versions(secret: secretmanager.Secret, show_deleted: bool = False
 
     # List all versions of the secret
     request = secretmanager.ListSecretVersionsRequest(
-        parent=parent,
-        filter="state!=DESTROYED" if not show_deleted else None
+        parent=parent, filter="state!=DESTROYED" if not show_deleted else None
     )
 
     versions = []
@@ -40,6 +40,7 @@ def get_secret_versions(secret: secretmanager.Secret, show_deleted: bool = False
         versions.append(version)
 
     return versions
+
 
 def get_secret_version_value(secret_version: secretmanager.SecretVersion) -> dict:
     """

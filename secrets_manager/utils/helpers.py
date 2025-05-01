@@ -1,5 +1,3 @@
-from textual.markup import escape
-
 def format_error_message(error_message: str, max_length: int | None = None) -> str:
     """
     Format the error message for display.
@@ -31,9 +29,7 @@ def sanitize_project_id_search(search_term: str) -> str:
     # Replace spaces and invalid characters with hyphens
     # Keep only allowed characters: lowercase letters, numbers, and hyphens
     sanitized = "".join(
-        c if c.isalnum() or c == "-" else "-"
-        for c in sanitized
-        if c.isalnum() or c in "-_ "
+        c if c.isalnum() or c == "-" else "-" for c in sanitized if c.isalnum() or c in "-_ "
     )
 
     # Remove consecutive hyphens
@@ -42,7 +38,8 @@ def sanitize_project_id_search(search_term: str) -> str:
 
     return sanitized
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     print(sanitize_project_id_search(""))
     print(sanitize_project_id_search("-"))
     print(sanitize_project_id_search("--"))

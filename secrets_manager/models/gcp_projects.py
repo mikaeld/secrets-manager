@@ -1,6 +1,5 @@
 from google.cloud.resourcemanager_v3.types import Project
 from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Optional
 
 
 class GCPProject(BaseModel):
@@ -11,7 +10,7 @@ class GCPProject(BaseModel):
     name: str = Field(
         description="The unique resource name of the project (e.g., projects/415104041262)"
     )
-    parent: Optional[str] = Field(
+    parent: str | None = Field(
         default=None,
         description="Reference to parent resource (e.g., organizations/123 or folders/876)",
     )
@@ -25,7 +24,7 @@ class GCPProject(BaseModel):
         max_length=30,
         description="User-assigned display name of the project",
     )
-    labels: Dict[str, str] = Field(
+    labels: dict[str, str] = Field(
         default_factory=dict, description="Key-value pairs for project labels"
     )
 
@@ -53,7 +52,7 @@ class GCPProject(BaseModel):
         return f"GCPProject(display_name={self.display_name}, name={self.name}, project_id={self.project_id})"
 
     @field_validator("labels")
-    def validate_labels(cls, v: Dict[str, str]) -> Dict[str, str]:
+    def validate_labels(cls, v: dict[str, str]) -> dict[str, str]:
         """Validate label keys and values according to GCP requirements."""
         for key, value in v.items():
             # Validate key format
@@ -63,9 +62,7 @@ class GCPProject(BaseModel):
                 raise ValueError(f"Label key too long: {key}")
 
             # Validate value format
-            if not value.isalnum() and not all(
-                c in "-_" for c in value if not c.isalnum()
-            ):
+            if not value.isalnum() and not all(c in "-_" for c in value if not c.isalnum()):
                 raise ValueError(f"Invalid label value format: {value}")
             if len(value) > 63:
                 raise ValueError(f"Label value too long: {value}")
