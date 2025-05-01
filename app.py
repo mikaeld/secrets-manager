@@ -1,0 +1,133 @@
+from google.cloud import secretmanager
+from google.api_core.exceptions import GoogleAPICallError
+from textual import work
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.reactive import reactive
+from textual.widgets import Header, Footer, Tree, DataTable, Input
+from textual.markup import escape
+
+from secrets_manager.utils.gcp import search_gcp_projects, list_secrets, get_secret_versions
+from secrets_manager.utils.helpers import sanitize_project_id_search, format_error_message
+from secrets_manager.models.gcp_projects import GCPProject
+
+
+class SecretsManager(App):
+    CSS_PATH = "secrets_manager.tcss"
+    BINDINGS = [
+        Binding("ctrl+q", "quit", "Quit"),
+    ]
+
+    search_query = reactive("")
+    current_project = reactive(None)
+
+    def __init__(self):
+        super().__init__()
+        self.client = secretmanager.SecretManagerServiceClient()
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets."""
+        yield Header()
+        yield Input(
+            placeholder="Search by project ID or display name...",
+            id="project-input-search",
+        )
+
+        with Horizontal(id="main-container"):
+            yield Tree("Projects", id="projects-tree")
+            with Vertical(id="secrets-container"):
+                yield DataTable()
+
+        yield Footer()
+
+    def on_mount(self) -> None:
+        """Set up the initial state when the app starts."""
+        self.query_one(DataTable).add_columns("Name", "Latest Version", "State", "Create Time")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Update the search query reactive property."""
+        if event.input.id == "project-input-search":
+            sanitized = sanitize_project_id_search(event.input.value)
+            if sanitized != event.input.value:
+                event.input.value = sanitized
+            self.search_query = sanitized
+
+    def watch_search_query(self, search_query: str) -> None:
+        """React to changes in a search query."""
+        self._do_search(search_query)
+
+    def watch_current_project(self, project: "GCPProject") -> None:
+        """React to changes in a selected project."""
+        if project is not None:
+            self._load_secrets()
+
+    @work(thread=True)
+    def _do_search(self, search_term: str) -> None:
+        """
+        Perform project search and update the tree view.
+        Running in a separate thread to keep UI responsive.
+        """
+        tree = self.query_one("#projects-tree", Tree)
+        root = tree.root
+        root.expand()
+        root.label = "Projects"
+        try:
+            if search_term:
+                projects = search_gcp_projects(search_term)
+                tree.reset("Projects")
+                for project in projects:
+                    leaf_label = f"{project.display_name} ({project.project_id})"
+                    project_node = tree.root.add_leaf(leaf_label)
+                    project_node.data = project
+        except GoogleAPICallError as e:
+            self.notify(
+                f"Failed to search projects: [b]{e.code}[/b]: {format_error_message(str(e.message))}",
+                severity="error",
+            )
+        except Exception as e:
+            self.notify(
+                f"Failed to search projects: {format_error_message(str(e), 200)}",
+                severity="error", markup=False,
+            )
+        return None
+
+    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+        """Handle project selection in the tree."""
+        if event.node.parent == self.query_one("#projects-tree", Tree).root:
+            self.current_project = event.node.data
+
+    @work(thread=True)
+    def _load_secrets(self) -> None:
+        """Load secrets for the selected project."""
+        table = self.query_one(DataTable)
+        table.clear()
+        if self.current_project:
+            try:
+                secrets = list_secrets(gcp_project=self.current_project)
+
+                for secret in secrets:
+                    secret_name = secret.name.split("/")[-1]
+                    create_time = secret.create_time.strftime("%Y-%m-%d %H:%M:%S")
+                    secret_versions = get_secret_versions(secret)
+
+                    # First secret in list is always the latest secret
+                    latest_version = secret_versions[0]
+                    latest_version_number = latest_version.name.split("/")[-1]
+                    table.add_row(secret_name, latest_version_number, latest_version.state.name, create_time)
+
+            except GoogleAPICallError as e:
+                self.notify(
+                    f"[b]Failed to load secrets: {e.code} {e.reason}[/b]\n[d]{format_error_message(str(e.message))}[/d]",
+                    severity="error",
+                )
+            except Exception as e:
+                self.notify(
+                    f"Failed to load secrets: {format_error_message(str(e), 200)}",
+                    severity="error", markup=False,
+                )
+
+
+if __name__ == "__main__":
+    app = SecretsManager()
+    app.run()
