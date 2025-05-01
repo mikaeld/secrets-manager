@@ -23,11 +23,10 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Lint with Ruff
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Format with Ruff
-        run: ruff format --check .
-
+        run: uv run ruff format --check .
 
   test:
     name: 🧪 Test and Coverage
