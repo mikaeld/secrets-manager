@@ -4,18 +4,30 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.coordinate import Coordinate
 from textual.reactive import reactive
-from textual.widgets import DataTable, Footer, Header, Input, Tree
+from textual.screen import ModalScreen
+from textual.widgets import DataTable, Footer, Header, Input, Pretty, Tree
 
 from secrets_manager.models.gcp_projects import GCPProject
-from secrets_manager.utils.gcp import get_secret_versions, list_secrets, search_gcp_projects
-from secrets_manager.utils.helpers import format_error_message, sanitize_project_id_search
+from secrets_manager.utils.gcp import (
+    get_secret_version_value,
+    get_secret_versions,
+    list_secrets,
+    search_gcp_projects,
+)
+from secrets_manager.utils.helpers import (
+    format_error_message,
+    sanitize_project_id_search,
+    sanitize_secrets,
+)
 
 
 class SecretsManager(App):
     CSS_PATH = "secrets_manager.tcss"
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
+        Binding("p", "secret_preview", "Secret Preview"),
     ]
 
     search_query = reactive("")
@@ -42,7 +54,11 @@ class SecretsManager(App):
 
     def on_mount(self) -> None:
         """Set up the initial state when the app starts."""
-        self.query_one(DataTable).add_columns("Name", "Latest Version", "State", "Create Time")
+        self.query_one(DataTable).add_column("Name")
+        self.query_one(DataTable).add_column("Selected Version", key="version")
+        self.query_one(DataTable).add_column("State")
+        self.query_one(DataTable).add_column("Create Time")
+        self.query_one(DataTable).add_column("", key="secret_id", width=0)  # Hidden column
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Update the search query reactive property."""
@@ -59,7 +75,7 @@ class SecretsManager(App):
     def watch_current_project(self, project: "GCPProject") -> None:
         """React to changes in a selected project."""
         if project is not None:
-            self._load_secrets()
+            self._list_secrets()
 
     @work(thread=True)
     def _do_search(self, search_term: str) -> None:
@@ -97,9 +113,19 @@ class SecretsManager(App):
         if event.node.parent == self.query_one("#projects-tree", Tree).root:
             self.current_project = event.node.data
 
+    def action_secret_preview(self):
+        table = self.query_one(DataTable)
+        secret_column_index = table.get_column_index("secret_id")
+        version_column_index = table.get_column_index("version")
+        row_index = table.cursor_row
+        secret_id = table.get_cell_at(Coordinate(row_index, secret_column_index))
+        secret_version = table.get_cell_at(Coordinate(row_index, version_column_index))
+        secret_name = f"{secret_id}/versions/{secret_version}"
+        self.push_screen(SecretPreview(secret_name))
+
     @work(thread=True)
-    def _load_secrets(self) -> None:
-        """Load secrets for the selected project."""
+    def _list_secrets(self) -> None:
+        """List secrets for the selected project."""
         table = self.query_one(DataTable)
         table.clear()
         if self.current_project:
@@ -115,7 +141,11 @@ class SecretsManager(App):
                     latest_version = secret_versions[0]
                     latest_version_number = latest_version.name.split("/")[-1]
                     table.add_row(
-                        secret_name, latest_version_number, latest_version.state.name, create_time
+                        secret_name,
+                        latest_version_number,
+                        latest_version.state.name,
+                        create_time,
+                        secret.name,
                     )
 
             except GoogleAPICallError as e:
@@ -129,6 +159,38 @@ class SecretsManager(App):
                     severity="error",
                     markup=False,
                 )
+
+
+class SecretPreview(ModalScreen):
+    def __init__(self, secret_name: str) -> None:
+        """Initialize the modal screen with the secret value.
+
+        Args:
+            secret_name: The secret value to display
+        """
+        super().__init__()
+        self.secret_name = secret_name
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Compose the modal with a Pretty widget to display the secret."""
+        yield Pretty({}, id="pretty-preview")
+
+    def on_mount(self) -> None:
+        self._get_secret(self.secret_name)
+
+    def action_dismiss(self) -> None:
+        """Handle the dismiss action to close the modal."""
+        self.app.pop_screen()
+
+    @work(thread=True)
+    def _get_secret(self, secret_name) -> None:
+        secret_value = get_secret_version_value(secret_name)
+        sanitized = sanitize_secrets(secret_value)
+        self.query_one(Pretty).update(sanitized)
 
 
 if __name__ == "__main__":
