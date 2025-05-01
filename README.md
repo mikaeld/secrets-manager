@@ -1,3 +1,6 @@
+![CI](https://github.com/mikaeld/secrets-manager/workflows/CI/badge.svg)
+[![codecov](https://codecov.io/gh/mikaeld/secrets-manager/branch/main/graph/badge.svg)](https://codecov.io/gh/<username>/secrets-manager)
+
 ![tui.png](imgs/tui.png)
 
 # Secrets Manager

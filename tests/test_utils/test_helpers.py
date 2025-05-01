@@ -1,4 +1,3 @@
-import pytest
 from secrets_manager.utils.helpers import format_error_message, sanitize_project_id_search
 
 
@@ -107,8 +106,7 @@ class TestSanitizeProjectIdSearch:
             ("abc123", "abc123"),
             ("dev-prod", "dev-prod"),
             ("test-123-xyz", "test-123-xyz"),
-            ("abcdefghijklmnopqrstuvwxyz-0123456789",
-             "abcdefghijklmnopqrstuvwxyz-0123456789"),
+            ("abcdefghijklmnopqrstuvwxyz-0123456789", "abcdefghijklmnopqrstuvwxyz-0123456789"),
         ]
         for input_str, expected in test_cases:
             assert sanitize_project_id_search(input_str) == expected

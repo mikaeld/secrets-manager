@@ -1,16 +1,15 @@
-from google.cloud import secretmanager
 from google.api_core.exceptions import GoogleAPICallError
+from google.cloud import secretmanager
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
-from textual.widgets import Header, Footer, Tree, DataTable, Input
-from textual.markup import escape
+from textual.widgets import DataTable, Footer, Header, Input, Tree
 
-from secrets_manager.utils.gcp import search_gcp_projects, list_secrets, get_secret_versions
-from secrets_manager.utils.helpers import sanitize_project_id_search, format_error_message
 from secrets_manager.models.gcp_projects import GCPProject
+from secrets_manager.utils.gcp import get_secret_versions, list_secrets, search_gcp_projects
+from secrets_manager.utils.helpers import format_error_message, sanitize_project_id_search
 
 
 class SecretsManager(App):
@@ -88,7 +87,8 @@ class SecretsManager(App):
         except Exception as e:
             self.notify(
                 f"Failed to search projects: {format_error_message(str(e), 200)}",
-                severity="error", markup=False,
+                severity="error",
+                markup=False,
             )
         return None
 
@@ -114,7 +114,9 @@ class SecretsManager(App):
                     # First secret in list is always the latest secret
                     latest_version = secret_versions[0]
                     latest_version_number = latest_version.name.split("/")[-1]
-                    table.add_row(secret_name, latest_version_number, latest_version.state.name, create_time)
+                    table.add_row(
+                        secret_name, latest_version_number, latest_version.state.name, create_time
+                    )
 
             except GoogleAPICallError as e:
                 self.notify(
@@ -124,7 +126,8 @@ class SecretsManager(App):
             except Exception as e:
                 self.notify(
                     f"Failed to load secrets: {format_error_message(str(e), 200)}",
-                    severity="error", markup=False,
+                    severity="error",
+                    markup=False,
                 )
 
 
