@@ -74,7 +74,7 @@ def test_get_secret_version_value(mock_secret_manager_client, mock_secret_versio
     mock_response.payload.data = json.dumps({"key": "value"}).encode()
     mock_client.access_secret_version.return_value = mock_response
 
-    result = get_secret_version_value(mock_secret_version)
+    result = get_secret_version_value(mock_secret_version.name)
 
     assert result == {"key": "value"}
     mock_client.access_secret_version.assert_called_once_with(

@@ -4,10 +4,9 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.coordinate import Coordinate
 from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Header, Input, Pretty, Tree
+from textual.widgets import Footer, Header, Input, Pretty, Static, Tree
 
 from secrets_manager.models.gcp_projects import GCPProject
 from secrets_manager.utils.gcp import (
@@ -48,17 +47,9 @@ class SecretsManager(App):
         with Horizontal(id="main-container"):
             yield Tree("Projects", id="projects-tree")
             with Vertical(id="secrets-container"):
-                yield DataTable()
+                yield Tree("Secrets", id="secrets-tree")
 
         yield Footer()
-
-    def on_mount(self) -> None:
-        """Set up the initial state when the app starts."""
-        self.query_one(DataTable).add_column("Name")
-        self.query_one(DataTable).add_column("Selected Version", key="version")
-        self.query_one(DataTable).add_column("State")
-        self.query_one(DataTable).add_column("Create Time")
-        self.query_one(DataTable).add_column("", key="secret_id", width=0)  # Hidden column
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Update the search query reactive property."""
@@ -113,40 +104,37 @@ class SecretsManager(App):
         if event.node.parent == self.query_one("#projects-tree", Tree).root:
             self.current_project = event.node.data
 
-    def action_secret_preview(self):
-        table = self.query_one(DataTable)
-        secret_column_index = table.get_column_index("secret_id")
-        version_column_index = table.get_column_index("version")
-        row_index = table.cursor_row
-        secret_id = table.get_cell_at(Coordinate(row_index, secret_column_index))
-        secret_version = table.get_cell_at(Coordinate(row_index, version_column_index))
-        secret_name = f"{secret_id}/versions/{secret_version}"
-        self.push_screen(SecretPreview(secret_name))
-
     @work(thread=True)
     def _list_secrets(self) -> None:
         """List secrets for the selected project."""
-        table = self.query_one(DataTable)
-        table.clear()
+        tree = self.query_one("#secrets-tree", Tree)
+        tree.clear()
+        tree.root.label = "Secrets"
+
         if self.current_project:
             try:
                 secrets = list_secrets(gcp_project=self.current_project)
 
                 for secret in secrets:
                     secret_name = secret.name.split("/")[-1]
-                    create_time = secret.create_time.strftime("%Y-%m-%d %H:%M:%S")
-                    secret_versions = get_secret_versions(secret)
 
-                    # First secret in list is always the latest secret
-                    latest_version = secret_versions[0]
-                    latest_version_number = latest_version.name.split("/")[-1]
-                    table.add_row(
-                        secret_name,
-                        latest_version_number,
-                        latest_version.state.name,
-                        create_time,
-                        secret.name,
-                    )
+                    # Create a node for each secret
+                    secret_node = tree.root.add(secret_name, data={"secret_name": secret.name})
+
+                    # Add versions as children
+                    secret_versions = get_secret_versions(secret)
+                    for version in secret_versions:
+                        version_number = version.name.split("/")[-1]
+                        secret_node.add_leaf(
+                            f"Version {version_number} - {version.state.name}",
+                            data={
+                                "secret_name": secret.name,
+                                "version": version_number,
+                                "state": version.state.name,
+                            },
+                        )
+
+                    tree.root.expand()
 
             except GoogleAPICallError as e:
                 self.notify(
@@ -159,6 +147,18 @@ class SecretsManager(App):
                     severity="error",
                     markup=False,
                 )
+
+    def action_secret_preview(self):
+        tree = self.query_one("#secrets-tree", Tree)
+        if tree.cursor_node:
+            data = tree.cursor_node.data
+            if tree.cursor_node.parent == tree.root:
+                # Get latest version if the cursor is on a secret node
+                secret_name = f"{data['secret_name']}/versions/latest"
+            else:
+                # Get specific version if the cursor is on a version node
+                secret_name = f"{data['secret_name']}/versions/{data['version']}"
+            self.push_screen(SecretPreview(secret_name))
 
 
 class SecretPreview(ModalScreen):
@@ -177,7 +177,16 @@ class SecretPreview(ModalScreen):
 
     def compose(self) -> ComposeResult:
         """Compose the modal with a Pretty widget to display the secret."""
-        yield Pretty({}, id="pretty-preview")
+        with Vertical(classes="preview-container"):
+            # Extract the actual secret name and version from the full path
+            parts = self.secret_name.split("/")
+            secret_name = parts[-3]
+            version = parts[-1]
+
+            yield Static(
+                f"Secret: [b]{secret_name}[/b]\nVersion: [b]{version}[/b]", classes="secret-header"
+            )
+            yield Pretty({}, id="pretty-preview")
 
     def on_mount(self) -> None:
         self._get_secret(self.secret_name)
