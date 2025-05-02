@@ -42,21 +42,20 @@ def get_secret_versions(
     return versions
 
 
-def get_secret_version_value(secret_version: secretmanager.SecretVersion) -> dict:
+def get_secret_version_value(secret_id: str) -> dict:
     """
     Get the value of a specific secret version.
 
     Args:
-        secret_version (SecretVersion): Secret version instance to retrieve values
+        secret_id (str): Secret identifier in the format "projects/{project_id}/secrets/{secret_id}/versions/{version_id}"
 
     Returns:
         str: The secret value
     """
     client = secretmanager.SecretManagerServiceClient()
-    name = secret_version.name
 
     # Access the secret version
-    response = client.access_secret_version(request={"name": name})
+    response = client.access_secret_version(request={"name": secret_id})
 
     # Return the decoded payload
     return json.loads(response.payload.data)

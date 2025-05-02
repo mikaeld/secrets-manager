@@ -4,18 +4,30 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.markup import escape
 from textual.reactive import reactive
-from textual.widgets import DataTable, Footer, Header, Input, Tree
+from textual.screen import ModalScreen
+from textual.widgets import Footer, Header, Input, Pretty, Static, Tree
 
 from secrets_manager.models.gcp_projects import GCPProject
-from secrets_manager.utils.gcp import get_secret_versions, list_secrets, search_gcp_projects
-from secrets_manager.utils.helpers import format_error_message, sanitize_project_id_search
+from secrets_manager.utils.gcp import (
+    get_secret_version_value,
+    get_secret_versions,
+    list_secrets,
+    search_gcp_projects,
+)
+from secrets_manager.utils.helpers import (
+    format_error_message,
+    sanitize_project_id_search,
+    sanitize_secrets,
+)
 
 
 class SecretsManager(App):
     CSS_PATH = "secrets_manager.tcss"
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
+        Binding("p", "secret_preview", "Secret Preview"),
     ]
 
     search_query = reactive("")
@@ -36,13 +48,9 @@ class SecretsManager(App):
         with Horizontal(id="main-container"):
             yield Tree("Projects", id="projects-tree")
             with Vertical(id="secrets-container"):
-                yield DataTable()
+                yield Tree("Secrets", id="secrets-tree")
 
         yield Footer()
-
-    def on_mount(self) -> None:
-        """Set up the initial state when the app starts."""
-        self.query_one(DataTable).add_columns("Name", "Latest Version", "State", "Create Time")
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """Update the search query reactive property."""
@@ -59,7 +67,7 @@ class SecretsManager(App):
     def watch_current_project(self, project: "GCPProject") -> None:
         """React to changes in a selected project."""
         if project is not None:
-            self._load_secrets()
+            self._list_secrets()
 
     @work(thread=True)
     def _do_search(self, search_term: str) -> None:
@@ -98,25 +106,36 @@ class SecretsManager(App):
             self.current_project = event.node.data
 
     @work(thread=True)
-    def _load_secrets(self) -> None:
-        """Load secrets for the selected project."""
-        table = self.query_one(DataTable)
-        table.clear()
+    def _list_secrets(self) -> None:
+        """List secrets for the selected project."""
+        tree = self.query_one("#secrets-tree", Tree)
+        tree.clear()
+        tree.root.label = "Secrets"
+
         if self.current_project:
             try:
                 secrets = list_secrets(gcp_project=self.current_project)
 
                 for secret in secrets:
                     secret_name = secret.name.split("/")[-1]
-                    create_time = secret.create_time.strftime("%Y-%m-%d %H:%M:%S")
-                    secret_versions = get_secret_versions(secret)
 
-                    # First secret in list is always the latest secret
-                    latest_version = secret_versions[0]
-                    latest_version_number = latest_version.name.split("/")[-1]
-                    table.add_row(
-                        secret_name, latest_version_number, latest_version.state.name, create_time
-                    )
+                    # Create a node for each secret
+                    secret_node = tree.root.add(secret_name, data={"secret_name": secret.name})
+
+                    # Add versions as children
+                    secret_versions = get_secret_versions(secret)
+                    for version in secret_versions:
+                        version_number = version.name.split("/")[-1]
+                        secret_node.add_leaf(
+                            f"Version {version_number} - {version.state.name}",
+                            data={
+                                "secret_name": secret.name,
+                                "version": version_number,
+                                "state": version.state.name,
+                            },
+                        )
+
+                    tree.root.expand()
 
             except GoogleAPICallError as e:
                 self.notify(
@@ -129,6 +148,73 @@ class SecretsManager(App):
                     severity="error",
                     markup=False,
                 )
+
+    def action_secret_preview(self):
+        tree = self.query_one("#secrets-tree", Tree)
+        if tree.cursor_node:
+            data = tree.cursor_node.data
+            if tree.cursor_node.parent == tree.root:
+                # Get latest version if the cursor is on a secret node
+                secret_name = f"{data['secret_name']}/versions/latest"
+            else:
+                # Get specific version if the cursor is on a version node
+                secret_name = f"{data['secret_name']}/versions/{data['version']}"
+            self.push_screen(SecretPreview(secret_name))
+
+
+class SecretPreview(ModalScreen):
+    def __init__(self, secret_name: str) -> None:
+        """Initialize the modal screen with the secret value.
+
+        Args:
+            secret_name: The secret value to display
+        """
+        super().__init__()
+        self.secret_name = secret_name
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Compose the modal with a Pretty widget to display the secret."""
+        with Vertical(classes="preview-container"):
+            # Extract the actual secret name and version from the full path
+            parts = self.secret_name.split("/")
+            secret_name = parts[-3]
+            version = parts[-1]
+
+            yield Static(
+                f"Secret: [b]{secret_name}[/b]\nVersion: [b]{version}[/b]", classes="secret-header"
+            )
+            yield Pretty({}, id="pretty-preview")
+
+    def on_mount(self) -> None:
+        self._get_secret(self.secret_name)
+
+    def action_dismiss(self) -> None:
+        """Handle the dismiss action to close the modal."""
+        self.app.pop_screen()
+
+    @work(thread=True)
+    def _get_secret(self, secret_name) -> None:
+        try:
+            secret_value = get_secret_version_value(secret_name)
+            secret_to_preview = sanitize_secrets(secret_value)
+            self.query_one(Pretty).update(secret_to_preview)
+        except GoogleAPICallError as e:
+            self.notify(
+                f"[b]Failed to preview secret: {e.code} {e.reason}[/b]\n[d]{escape(format_error_message(str(e.message)))}[/d]",
+                severity="error",
+            )
+            self.action_dismiss()
+        except Exception as e:
+            self.notify(
+                f"Failed to preview secret: {format_error_message(str(e), 200)}",
+                severity="error",
+                markup=False,
+            )
+            self.action_dismiss()
 
 
 if __name__ == "__main__":
