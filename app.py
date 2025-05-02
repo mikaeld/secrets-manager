@@ -4,6 +4,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.markup import escape
 from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Pretty, Static, Tree
@@ -197,9 +198,23 @@ class SecretPreview(ModalScreen):
 
     @work(thread=True)
     def _get_secret(self, secret_name) -> None:
-        secret_value = get_secret_version_value(secret_name)
-        sanitized = sanitize_secrets(secret_value)
-        self.query_one(Pretty).update(sanitized)
+        try:
+            secret_value = get_secret_version_value(secret_name)
+            secret_to_preview = sanitize_secrets(secret_value)
+            self.query_one(Pretty).update(secret_to_preview)
+        except GoogleAPICallError as e:
+            self.notify(
+                f"[b]Failed to preview secret: {e.code} {e.reason}[/b]\n[d]{escape(format_error_message(str(e.message)))}[/d]",
+                severity="error",
+            )
+            self.action_dismiss()
+        except Exception as e:
+            self.notify(
+                f"Failed to preview secret: {format_error_message(str(e), 200)}",
+                severity="error",
+                markup=False,
+            )
+            self.action_dismiss()
 
 
 if __name__ == "__main__":
