@@ -1,4 +1,25 @@
-from secrets_manager.utils.helpers import format_error_message, sanitize_project_id_search
+import json
+import pathlib
+import tempfile
+from io import StringIO
+from unittest.mock import mock_open, patch
+
+import pytest
+
+from secrets_manager.utils.helpers import (
+    format_error_message,
+    sanitize_project_id_search,
+    shasum,
+    validate_json_content,
+)
+
+
+@pytest.fixture
+def temp_json_file():
+    """Create a temporary JSON file for testing."""
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
+        json.dump({"test": "data"}, f)
+        return pathlib.Path(f.name)
 
 
 class TestFormatErrorMessage:
@@ -110,3 +131,103 @@ class TestSanitizeProjectIdSearch:
         ]
         for input_str, expected in test_cases:
             assert sanitize_project_id_search(input_str) == expected
+
+
+def test_validate_json_content_valid():
+    """Test validate_json_content with valid JSON data."""
+    # Create a file-like object with valid JSON
+    valid_json = '{"key": "value", "number": 42}'
+    file_obj = StringIO(valid_json)
+
+    result = validate_json_content(file_obj)
+
+    assert result == {"key": "value", "number": 42}
+
+
+def test_validate_json_content_invalid():
+    """Test validate_json_content with invalid JSON data."""
+    # Create a file-like object with invalid JSON
+    invalid_json = '{"key": "value", invalid}'
+    file_obj = StringIO(invalid_json)
+
+    with pytest.raises(json.JSONDecodeError):
+        validate_json_content(file_obj)
+
+
+def test_validate_json_content_empty():
+    """Test validate_json_content with empty file."""
+    file_obj = StringIO("")
+
+    with pytest.raises(json.JSONDecodeError):
+        validate_json_content(file_obj)
+
+
+def test_shasum_with_file(temp_json_file):
+    """Test shasum with an actual file."""
+    import hashlib
+
+    # Calculate hash of known content
+    known_content = json.dumps({"test": "data"}).encode()
+    expected_hash = hashlib.sha256(known_content).hexdigest()
+
+    # Calculate hash using shasum function
+    result = shasum(temp_json_file)
+
+    assert result == expected_hash
+
+
+def test_shasum_with_large_file():
+    """Test shasum with a large file to verify chunked reading."""
+    import hashlib
+
+    # Mock a large file with known content
+    large_content = b"x" * 8192  # Two 4K blocks
+    expected_hash = hashlib.sha256(large_content).hexdigest()
+
+    mock_file = mock_open(read_data=large_content)
+    with patch("builtins.open", mock_file):
+        result = shasum(pathlib.Path("dummy.txt"))
+
+    assert result == expected_hash
+    # Verify that the file was read in chunks
+    handle = mock_file()
+    assert handle.read.call_count > 1
+
+
+def test_shasum_with_empty_file():
+    """Test shasum with an empty file."""
+    import hashlib
+
+    # Create empty file
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        pass
+
+    file_path = pathlib.Path(f.name)
+    try:
+        result = shasum(file_path)
+        expected_hash = hashlib.sha256(b"").hexdigest()
+        assert result == expected_hash
+    finally:
+        file_path.unlink()
+
+
+def test_shasum_with_nonexistent_file():
+    """Test shasum with a file that doesn't exist."""
+    with pytest.raises(FileNotFoundError):
+        shasum(pathlib.Path("nonexistent_file.txt"))
+
+
+@pytest.mark.parametrize(
+    "test_input,expected",
+    [
+        ('{"key": "value"}', {"key": "value"}),
+        ('{"nested": {"key": "value"}}', {"nested": {"key": "value"}}),
+        ('{"array": [1, 2, 3]}', {"array": [1, 2, 3]}),
+        ('{"null": null}', {"null": None}),
+    ],
+)
+def test_validate_json_content_various_types(test_input, expected):
+    """Test validate_json_content with various JSON data types."""
+    file_obj = StringIO(test_input)
+    result = validate_json_content(file_obj)
+    assert result == expected

@@ -1,3 +1,9 @@
+import json
+import pathlib
+from hashlib import sha256
+from typing import IO
+
+
 def format_error_message(error_message: str, max_length: int | None = None) -> str:
     """
     Format the error message for display.
@@ -73,3 +79,18 @@ def sanitize_secrets(data: dict) -> dict:
             return _mask_value(obj)
 
     return _sanitize_recursive(data)
+
+
+def validate_json_content(filelike: IO) -> dict | None:
+    filelike.seek(0)
+    return json.load(filelike)
+
+
+# thanks to https://www.quickprogrammingtips.com/python/how-to-calculate-sha256-hash-of-a-file-in-python.html
+def shasum(file: pathlib.Path):
+    sha256_hash = sha256()
+    with open(file, "rb") as f:
+        # Read and update hash string value in blocks of 4K
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
