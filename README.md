@@ -1,5 +1,5 @@
 ![CI](https://github.com/mikaeld/secrets-manager/workflows/CI/badge.svg)
-[![codecov](https://codecov.io/gh/mikaeld/secrets-manager/branch/main/graph/badge.svg)](https://codecov.io/gh/<username>/secrets-manager)
+[![codecov](https://codecov.io/gh/mikaeld/secrets-manager/graph/badge.svg?token=9JUUUAX2Q8)](https://codecov.io/gh/mikaeld/secrets-manager)
 
 ![tui.png](imgs/tui.png)
 
